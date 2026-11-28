@@ -1,3 +1,4 @@
+import {formatValue} from '@/lib/format';
 import {singleSearchParams} from '@/lib/module-ui';
 import Link from 'next/link';
 import {requireStaffForRender as requireStaff} from '@/lib/security';
@@ -57,6 +58,7 @@ export default async function SociPage({searchParams}:{searchParams:Promise<{q?:
   stagioni:snapshot.seasons,seasonError:null,chosen:snapshot.chosen,data:snapshot.rows,error:null,count:snapshot.count,
   total:{count:snapshot.counts.total,error:null},byStatus:statuses.map(s=>({count:snapshot.counts[s],error:null}))
  }:await readLegacy();
+ const {data:pending,error:pendingError,count:pendingCount}=await supabase.from('rettifiche_anagrafiche').select('id,persona_id,nome,cognome,creata_il',{count:'exact'}).eq('stato','in_attesa').order('creata_il').order('id').limit(50);
  const rows=(data??[]) as unknown as SocioRow[];
  const filters={q,stagione:chosen,stato,ordine};
  const pageCount=Math.max(1,Math.ceil((count??0)/perPage));
@@ -64,6 +66,7 @@ export default async function SociPage({searchParams}:{searchParams:Promise<{q?:
  return <>
  <PageHeader eyebrow="Segreteria" title="Soci e allievi" area="secretariat" icon="users" marine description="Elenco per adesione associativa. Per persone senza adesione, consulta l’archivio anagrafico." actions={<ButtonLink href="/gestionale/moduli/anagrafiche?nuovo=1" icon="plus">Aggiungi persona</ButtonLink>}/>
  <SecretariatNav active="/gestionale/soci"/>
+  <section className="sc-card stack"><h2>Rettifiche anagrafiche da verificare {pendingError?'': '('+(pendingCount??0)+')'}</h2>{pendingError?<p role="alert">Impossibile caricare le rettifiche.</p>:pending?.length?<ul>{pending.map(r=><li key={r.id}><Link href={'/gestionale/soci/'+r.persona_id+'?tab=anagrafica'}>{r.cognome} {r.nome}</Link> · {formatValue(r.creata_il)}</li>)}</ul>:<p className="muted">Nessuna richiesta in attesa.</p>}{(pendingCount??0)>50&&<p>Prime 50 richieste: elaborale per vedere le successive.</p>}</section>
  <div className="sc-member-list-metrics sc-metrics" aria-label="Adesioni per stato nella ricerca e stagione selezionate">
  {[{key:'',label:'Totale adesioni',result:total},{key:'attiva',label:'Attive',result:byStatus[1]},{key:'da_perfezionare',label:'Da perfezionare',result:byStatus[0]},{key:'sospesa',label:'Sospese',result:byStatus[2]},{key:'cessata',label:'Cessate',result:byStatus[3]}].map(m=><Link key={m.key} className="sc-metric-link" aria-current={stato===m.key?'true':undefined} href={makeHref({...filters,stato:m.key},1)}><MetricCard label={m.label} area={m.key==='da_perfezionare'?'equipment':'secretariat'} icon={m.key==='da_perfezionare'?'clock':'users'} value={seasonError?'—':exactCount(m.result)}/></Link>)}
  </div>

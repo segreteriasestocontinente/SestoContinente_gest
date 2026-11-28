@@ -20,7 +20,7 @@ import {notFound} from 'next/navigation';
 import {requireStaffForRender as requireStaff} from '@/lib/security';
 import {formatValue} from '@/lib/format';
 import CodiceFiscaleAssist from '@/components/CodiceFiscaleAssist';
-import {updateMemberProfile,createMemberAdhesion} from '../actions';
+import {updateMemberProfile,createMemberAdhesion,updateMemberEmergency,reviewIdentityCorrection} from '../actions';
 
 const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 type Person={id:string;nome:string;cognome:string;data_nascita:string|null;luogo_nascita:string|null;codice_fiscale:string|null;indirizzo:string|null;cap:string|null;comune:string|null;email:string|null;telefono:string|null};
@@ -33,14 +33,14 @@ type Enrollment={id:string;edizione_id:string;stato:string;iscritta_il:string};
 type Edition={id:string;nome:string;corso_id:string;inizio:string;fine:string};
 type Course={id:string;nome:string;tipo:string;livello:number|null};
 type Cert={id:string;documento_id:string|null;stato_certificato:string;rilasciato_il:string;scade_il:string;idoneita_verificata:boolean};
-type Patent={id:string;rilasciato_da_nome:string|null;titolo:string;ente:string|null;numero_brevetto:string|null;ottenuto_il:string|null;scade_il:string|null};
+type Patent={id:string;origine:string|null;stato_verifica:string;centro_rilascio:string|null;istruttore_esterno:string|null;edizione_id:string|null;rilasciato_da_nome:string|null;titolo:string;ente:string|null;numero_brevetto:string|null;ottenuto_il:string|null;scade_il:string|null};
 type Qualification={id:string;titolo:string;ente:string|null;scade_il:string|null};
 type Equipment={id:string;attrezzatura_id:string;assegnata_il:string;restituita_il:string|null};
 type Document={id:string;nome:string;categoria:string;caricato_il:string};
 type Guardian={minore_id:string;tutore_id:string;parentela:string};
 const euro=(n:number|string|null|undefined)=>new Intl.NumberFormat('it-IT',{style:'currency',currency:'EUR'}).format(Number(n??0));
 const statusLabel=(s:string)=>s.replaceAll('_',' ');
-const statusMessage:Record<string,string>={elemento_salvato:'Modifiche salvate correttamente.',eliminato:'Elemento rimosso.',elimina_collegati:'Rimozione non consentita: il record è collegato ad altri dati o è protetto.',elimina_conferma:'Conferma la rimozione.',database:'Rimozione non riuscita. Controlla i permessi o contatta l’amministratore.',salvato:'Anagrafica aggiornata. La modifica è tracciata nel registro amministrativo.',
+const statusMessage:Record<string,string>={emergenza_salvata:'Contatto di emergenza salvato.',rettifica_decisa:'Rettifica anagrafica elaborata.',elemento_salvato:'Modifiche salvate correttamente.',eliminato:'Elemento rimosso.',elimina_collegati:'Rimozione non consentita: il record è collegato ad altri dati o è protetto.',elimina_conferma:'Conferma la rimozione.',database:'Rimozione non riuscita. Controlla i permessi o contatta l’amministratore.',salvato:'Anagrafica aggiornata. La modifica è tracciata nel registro amministrativo.',
  adesione_creata:'Adesione registrata in stato «da perfezionare». Verificare separatamente quota e tesseramento.',
  cf:'Codice fiscale non coerente con i dati anagrafici, oppure comune/Stato di nascita non identificato. Verifica i dati e usa il CF ufficiale.', omocodia:'Omocodia: conferma la verifica documentale e indica la motivazione.', dati:'Alcuni dati non sono validi. Controlla la compilazione.',duplicato:'Esiste già un altro socio con questo codice fiscale.',
  adesione_esistente:'Per questa stagione esiste già un’adesione.',errore:'Operazione non riuscita. Controlla i dati e i permessi.'};
@@ -86,7 +86,7 @@ export default async function MemberDetail({params,searchParams}:{params:Promise
   (tab==='pagamenti')?supabase.from('pagamenti').select('id,quota_id,addebito_corso_id,importo,data_pagamento,metodo',{count:'exact'}).eq('persona_id',id).order('data_pagamento',{ascending:false}).order('id').range(...range('pagamenti')):Promise.resolve(skip),
   (overview||tab==='corsi')?supabase.from('iscrizioni_corsi').select('id,edizione_id,stato,iscritta_il',{count:'exact'}).eq('persona_id',id).order('iscritta_il',{ascending:false}).order('id').range(...range('corsi')):Promise.resolve(skip),
   (overview||tab==='certificati')?supabase.from('stato_certificati').select('id,rilasciato_il,scade_il,idoneita_verificata,documento_id,stato_certificato',{count:'exact'}).eq('persona_id',id).order('creato_il',{ascending:false}).order('id').range(...range('certificati')):Promise.resolve(skip),
-  (overview||tab==='brevetti')?supabase.from('brevetti_allievi').select('id,titolo,ente,numero_brevetto,ottenuto_il,scade_il,rilasciato_da_nome',{count:'exact'}).eq('persona_id',id).order('ottenuto_il',{ascending:false}).order('id').range(...range('brevetti')):Promise.resolve(skip),
+  (overview||tab==='brevetti')?supabase.from('brevetti_allievi').select('id,titolo,ente,numero_brevetto,ottenuto_il,scade_il,rilasciato_da_nome,origine,stato_verifica,centro_rilascio,istruttore_esterno,edizione_id',{count:'exact'}).eq('persona_id',id).order('ottenuto_il',{ascending:false}).order('id').range(...range('brevetti')):Promise.resolve(skip),
   (tab==='istruttore')?supabase.from('qualifiche_istruttori').select('id,titolo,ente,scade_il',{count:'exact'}).eq('persona_id',id).order('id').range(...range('istruttore')):Promise.resolve(skip),
   (tab==='istruttore')?supabase.from('assegnazioni_istruttori').select('id,edizione_id,ruolo',{count:'exact'}).eq('persona_id',id).order('id').range(...range('istruttore',true)):Promise.resolve(skip),
   (overview||tab==='documenti')?supabase.from('documenti').select('id,nome,categoria,caricato_il',{count:'exact'}).eq('persona_id',id).order('caricato_il',{ascending:false}).order('id').range(...range('documenti')):Promise.resolve(skip),
@@ -140,6 +140,7 @@ export default async function MemberDetail({params,searchParams}:{params:Promise
  const active=allMembershipRows.find(m=>seasons.find(s=>s.id===m.stagione_id)?.attiva);
  const currentSeason=seasons.find(s=>s.attiva);
  const currentCard=overview&&!memberError&&active?await supabase.from('tesseramenti').select('id,ente,scade_il,stato').eq('adesione_id',active.id).order('scade_il',{ascending:false,nullsFirst:false}).order('id').limit(1).maybeSingle():{data:null,error:null};
+ const {data:corrections,error:correctionError}=tab==='anagrafica'?await supabase.from('rettifiche_anagrafiche').select('id,nome,cognome,data_nascita,luogo_nascita,provincia_nascita,stato_nascita,sesso_cf,codice_fiscale,creata_il,revisione').eq('persona_id',id).eq('stato','in_attesa'):{data:[],error:null};
  const {data:emergenza,error:emergencyError}=tab==='anagrafica'?await supabase.from('contatti_emergenza').select('nominativo,telefono').eq('persona_id',id).maybeSingle():{data:null,error:null};
  const {data:domanda,error:applicationError}=tab==='adesioni'?await supabase.from('richieste').select('id,utente_id,flag_privacy,versione_privacy,data_accettazione,immagini_scelta,immagini_versione,immagini_il,flag_immagini,versione_statuto,flag_statuto').eq('persona_id',id).order('modificato_il',{ascending:false}).limit(1).maybeSingle():{data:null,error:null};
  const titolare=tab==='adesioni'?(domanda?.utente_id??accountLinks?.find(a=>a.relazione==='titolare')?.utente_id):undefined;
@@ -162,7 +163,7 @@ export default async function MemberDetail({params,searchParams}:{params:Promise
  <div className="sc-member-identity"><p className="eyebrow">Segreteria · Scheda unificata</p><h1>{displayName(person.cognome)} {displayName(person.nome)}</h1><p>{currentSeason?.nome??'Stagione attiva non disponibile'}</p><p>{person.email??person.telefono??'Recapiti non acquisiti'}</p><StatusBadge tone={memberError?'neutral':statusTone(active?.stato??'')}>{memberError?'Stato non disponibile':active?statusLabel(active.stato):'Nessuna adesione nella stagione attiva'}</StatusBadge></div>
  <div className="sc-member-hero-actions"><ButtonLink href={`/comunicazioni/soci/${id}`} variant="secondary" icon="document">Scrivi al socio</ButtonLink><ButtonLink href={'/gestionale/incassi?persona='+id+'&stato=residuo'} variant="secondary" icon="wallet">Registra pagamento</ButtonLink><ButtonLink href="?tab=anagrafica&modifica=1" icon="user">Modifica anagrafica</ButtonLink></div>
  </header>
- {msg&&Object.hasOwn(statusMessage,msg)&&<p role="status" className={`notice ${['salvato','adesione_creata','elemento_salvato'].includes(msg)?'success':'warning'}`}>{statusMessage[msg]}</p>}
+ {msg&&Object.hasOwn(statusMessage,msg)&&<p role="status" className={`notice ${['salvato','adesione_creata','elemento_salvato','emergenza_salvata','rettifica_decisa'].includes(msg)?'success':'warning'}`}>{statusMessage[msg]}</p>}
  {partialErrors&&<Alert tone="warning">Una o più sezioni non sono disponibili. Non interpretare dati mancanti come assenza di registrazioni.</Alert>}
  <nav className="sc-member-tabbar" aria-label="Sezioni della scheda socio">
  <div className="sc-member-primary-tabs">{memberTabs.filter(([key])=>!isSecondaryMemberTab(key)).map(([key,label])=><Link key={key} href={listHref({tab:key})} aria-current={tab===key?'page':undefined}>{label}</Link>)}</div>
@@ -181,13 +182,17 @@ export default async function MemberDetail({params,searchParams}:{params:Promise
  </div></section>}
  <div className="member-sections sc-secretariat-section">
    {tab==='anagrafica'&&<Section id="anagrafica" title="Anagrafica e recapiti">
+    {correctionError&&<p role="alert">Impossibile caricare le richieste di rettifica.</p>}
+    {(corrections??[]).map(r=><div className="panel" key={r.id}><h3>Rettifica anagrafica in attesa</h3><p>Verifica i dati proposti con la documentazione e confrontali con l’anagrafica attuale.</p><div className="detail-grid"><div>Nome e cognome: <strong>{r.nome} {r.cognome}</strong></div><div>Data di nascita: {formatValue(r.data_nascita)}</div><div>Luogo: {[r.luogo_nascita,r.provincia_nascita,r.stato_nascita].filter(Boolean).join(' · ')||'—'}</div><div>Sesso CF: {r.sesso_cf??'—'}</div><div>Codice fiscale: {r.codice_fiscale??'—'}</div></div>
+    <EditForm action={reviewIdentityCorrection} successHref={'/gestionale/soci/'+id+'?msg=rettifica_decisa&tab=anagrafica'} className="stack"><input type="hidden" name="id" value={id}/><input type="hidden" name="rettifica_id" value={r.id}/><input type="hidden" name="revisione" value={r.revisione}/><label>Esito<select name="esito" required defaultValue=""><option value="">Seleziona</option><option value="applicata">Approva e applica</option><option value="respinta">Respingi</option></select></label><label className="check-label"><input type="checkbox" name="cf_omocodia_verificata"/>Omocodia verificata con documentazione</label><label>Motivazione verifica documentale (se necessaria)<input name="cf_override_motivo" maxLength={500}/></label><label>Motivazione per il socio (obbligatoria in caso di rifiuto)<textarea name="motivazione_esito" maxLength={500} rows={2}/></label><button className="button">Conferma esito</button></EditForm></div>)}
+
     <div className="detail-grid">
      <div><span className="k">Data e luogo di nascita</span><strong>{formatValue(person.data_nascita)} · {person.luogo_nascita??'—'}</strong></div>
      <div><span className="k">Codice fiscale</span><strong>{person.codice_fiscale??'—'}</strong></div>
      <div><span className="k">Indirizzo di residenza</span><strong>{[person.indirizzo,person.cap,person.comune].filter(Boolean).join(' · ')||'—'}</strong></div>
      <div><span className="k">Recapiti</span><strong>{person.email??'—'} · {person.telefono??'—'}</strong></div>
     </div>
-    <h3>Contatto di emergenza</h3><p>{emergencyError?'Non disponibile':emergenza?emergenza.nominativo+' · '+emergenza.telefono:'Non acquisito'}</p><Drawer title={'Modifica anagrafica · '+person.cognome+' '+person.nome} trigger="Modifica anagrafica e recapiti" primary initialOpen={modifica==='1'&&!msg}>
+    <h3>Contatto di emergenza</h3><p>{emergencyError?'Non disponibile':emergenza?emergenza.nominativo+' · '+emergenza.telefono:'Non acquisito'}</p>{!emergencyError&&<details><summary>Modifica contatto di emergenza</summary><EditForm action={updateMemberEmergency} successHref={'/gestionale/soci/'+id+'?msg=emergenza_salvata&tab=anagrafica'} className="stack"><input type="hidden" name="id" value={id}/><div className="form-grid"><label>Nome e cognome<input name="emergenza_nome" required maxLength={160} defaultValue={emergenza?.nominativo??''}/></label><label>Telefono<input name="emergenza_telefono" type="tel" required maxLength={32} defaultValue={emergenza?.telefono??''}/></label></div><button className="button">Salva contatto di emergenza</button></EditForm></details>}<Drawer title={'Modifica anagrafica · '+person.cognome+' '+person.nome} trigger="Modifica anagrafica e recapiti" primary initialOpen={modifica==='1'&&!msg}>
      <EditForm action={updateMemberProfile} className="stack sc-secretariat-form"><input type="hidden" name="id" value={person.id}/>
       <p className="tiny muted sc-form-legend">* Campi obbligatori. Gli altri sono facoltativi.</p>
       <fieldset><legend>Dati personali</legend><div className="form-grid">
@@ -260,8 +265,8 @@ export default async function MemberDetail({params,searchParams}:{params:Promise
     </tbody></table></div>:<None>Documento mancante · <Link href={'/area-personale/certificato?persona='+id}>Carica certificato</Link></None>}
    {pager(certResult,"certificati")}</Section>}
    {tab==='brevetti'&&<Section id="brevetti" title="Brevetti conseguiti" href={'/gestionale/moduli/brevetti?persona='+id}>{sectionError(patentResult.error)}<ButtonLink href={'/gestionale/moduli/brevetti?persona='+id+'&nuovo=1'}>Registra brevetto</ButtonLink>
-    {patentResult.error?null:patents.length?<div className="table-panel"><table><thead><tr><th>Brevetto</th><th>Rilasciato da</th><th>Ente</th><th>Conseguito</th><th>Scadenza</th><th>Azioni</th></tr></thead><tbody>
-     {patents.map(p=><tr key={p.id}><td>{p.titolo}</td><td>{p.rilasciato_da_nome??'Non acquisito'}</td><td>{p.ente??'—'}</td><td>{formatValue(p.ottenuto_il)}</td><td>{formatValue(p.scade_il)}</td><td><Link href={`/gestionale/moduli/${"brevetti"}?edit=${p.id}&persona=${id}`}>Modifica</Link></td></tr>)}
+    {patentResult.error?null:patents.length?<div className="table-panel"><table><thead><tr><th>Brevetto</th><th>Rilasciato da</th><th>Ente</th><th>Origine e verifica</th><th>Conseguito</th><th>Scadenza</th><th>Azioni</th></tr></thead><tbody>
+     {patents.map(p=><tr key={p.id}><td>{p.titolo}</td><td>{p.origine==='esterno'?[p.istruttore_esterno,p.centro_rilascio].filter(Boolean).join(' · ')||'Centro esterno':p.rilasciato_da_nome??'Non acquisito'}</td><td>{p.ente??'—'}</td><td>{p.origine==='esterno'?'Esterno':p.edizione_id?'Interno':'Storico'} · {String(p.stato_verifica??'verificato').replaceAll('_',' ')}</td><td>{formatValue(p.ottenuto_il)}</td><td>{formatValue(p.scade_il)}</td><td><Link href={`/gestionale/moduli/${"brevetti"}?edit=${p.id}&persona=${id}`}>Modifica</Link></td></tr>)}
     </tbody></table></div>:<None>Nessun brevetto registrato.</None>}
    {pager(patentResult,"brevetti")}</Section>}
    {tab==='documenti'&&<Section id="documenti" title="Documenti collegati" href={'/documenti?persona='+id}>{sectionError(documentResult.error)}

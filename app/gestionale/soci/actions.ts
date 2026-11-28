@@ -64,3 +64,37 @@ export async function createMemberAdhesion(form:FormData){
  revalidatePath(`/gestionale/soci/${id}`);
  redirect(memberUrl(id,'adesione_creata'));
 }
+
+export async function updateMemberEmergency(form:FormData){
+ const {supabase}=await requireStaff();
+ const id=read(form,'id'),nominativo=read(form,'emergenza_nome'),telefono=read(form,'emergenza_telefono');
+ if(!uuid.test(id))return {error:'Profilo non valido.'};
+ if(nominativo.length<2||nominativo.length>160)return {error:'Nome non valido.',field:'emergenza_nome'};
+ if(!/^[+0-9() ./-]{5,32}$/.test(telefono)||telefono.replace(/\D/g,'').length<5)return {error:'Numero non valido.',field:'emergenza_telefono'};
+ const {error}=await supabase.from('contatti_emergenza').upsert({persona_id:id,nominativo,telefono},{onConflict:'persona_id'});
+ if(error)return {error:'Impossibile salvare il contatto.'};
+ revalidatePath('/area-personale/profilo');revalidatePath('/gestionale/soci/'+id);
+
+}
+export async function reviewIdentityCorrection(form:FormData){
+ const {supabase}=await requireStaff();
+ const person=read(form,'id'),request=read(form,'rettifica_id'),esito=read(form,'esito'),revisione=Number(read(form,'revisione'));
+ if(!uuid.test(person)||!uuid.test(request)||!['applicata','respinta'].includes(esito)||!Number.isSafeInteger(revisione)||revisione<1)return {error:'Rettifica non valida.'};
+ const motivazione=read(form,'motivazione_esito');
+ if(motivazione.length>500||(esito==='respinta'&&motivazione.length<3))return {error:'Indica il motivo del rifiuto (da 3 a 500 caratteri).',field:'motivazione_esito'};
+ const {data:proposal,error}=await supabase.from('rettifiche_anagrafiche').select('nome,cognome,data_nascita,luogo_nascita,provincia_nascita,stato_nascita,sesso_cf,codice_fiscale,revisione').eq('id',request).eq('persona_id',person).eq('stato','in_attesa').maybeSingle();
+ if(error||!proposal||proposal.revisione!==revisione)return {error:'La rettifica è cambiata. Ricarica la scheda prima di decidere.'};
+ let check:{code:string|null;omocodia:boolean;reason:string|null}={code:null,omocodia:false,reason:null};
+ if(esito==='applicata'){
+  const {data:previous,error:previousError}=await supabase.from('persone').select('nome,cognome,data_nascita,luogo_nascita,provincia_nascita,stato_nascita,sesso_cf,codice_fiscale,codice_catastale_nascita,cf_omocodia_verificata,cf_override_motivo').eq('id',person).single();
+  if(previousError||!previous)return {error:'Impossibile verificare il profilo.'};
+  if(previous.codice_fiscale&&!proposal.codice_fiscale)return {error:'Non rimuovere un codice fiscale già registrato. Richiedi una rettifica completa.'};
+  const verified=await validaSalvataggioAnagrafica(proposal,previous,form.get('cf_omocodia_verificata')==='on',read(form,'cf_override_motivo'));
+  if(verified.error)return {error:'Verifica il codice fiscale e la documentazione prima dell’approvazione.'};
+  check=verified;
+ }
+ const result=await supabase.rpc('decidi_rettifica_anagrafica',{p_id:request,p_revisione:revisione,p_esito:esito,p_codice_catastale:check.code,p_omocodia:check.omocodia,p_motivo:check.reason,p_motivazione_esito:motivazione||null});
+ if(result.error)return {error:result.error.code==='40001'?'Il profilo è cambiato dopo la richiesta. Respingi e chiedi una nuova rettifica.':'Impossibile completare la rettifica. Verifica eventuali duplicati.'};
+ revalidatePath('/area-personale/profilo');revalidatePath('/gestionale/soci');revalidatePath('/gestionale/soci/'+person);
+
+}

@@ -1,19 +1,16 @@
 'use server';
-import {emergencyPair} from '@/lib/course-ui';
 import {redirect} from 'next/navigation';
 import {revalidatePath} from 'next/cache';
 import {requireUser} from '@/lib/security';
-const uuid=/^[0-9a-f-]{36}$/i;
+const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 export async function askForCourse(form:FormData){
  const {supabase}=await requireUser();
  const p_persona=String(form.get('persona_id')??'');
  const p_edizione=String(form.get('edizione_id')??'');
  if(!uuid.test(p_persona)||!uuid.test(p_edizione))return {error:'Seleziona un profilo e un corso validi.'};
- const p_nome=String(form.get('emergenza_nome')??'').trim(),p_telefono=String(form.get('emergenza_telefono')??'').trim();
- if(!emergencyPair(p_nome,p_telefono)||p_nome.length>160||p_telefono.length>32)return {error:'Inserisci entrambi i dati del contatto di emergenza, oppure lasciali entrambi vuoti.'};
- const {error}=await supabase.rpc('iscrivi_con_contatto',{p_persona,p_edizione,p_nome,p_telefono,p_richiesta:true});
- if(error)return {error:error.code==='P3521'?'Gli istruttori possono iscriversi come allievi solo con una deroga autorizzata dalla segreteria.':error.code==='P3520'?'Non puoi essere allievo e istruttore nella stessa edizione.':error.code==='P3421'?'Il direttore non può essere allievo.':error.code==='23505'?'Iscrizione già presente.':'Richiesta non inviata. Verifica requisiti associativi e capienza.'};
- revalidatePath('/area-personale/corsi');redirect('/area-personale/corsi?tab=iscrizioni&msg=inviata');
+ const {error}=await supabase.rpc('richiedi_iscrizione_corso',{p_persona,p_edizione});
+ if(error)return {error:error.code==='P3521'?'Gli istruttori possono iscriversi come allievi solo con una deroga autorizzata dalla segreteria.':error.code==='P3520'?'Non puoi essere allievo e istruttore nella stessa edizione.':error.code==='P3421'?'Il direttore non può essere allievo.':error.code==='23505'?'Iscrizione già presente.':error.message.includes('già presente')?'Richiesta già presente.':error.code==='P3413'?'Il corso non è aperto o manca l’adesione della stagione.':'Richiesta non inviata. Verifica adesione e disponibilità del corso.'};
+ revalidatePath('/area-personale/corsi');revalidatePath('/gestionale/corsi');revalidatePath('/gestionale/corsi/'+p_edizione);
 }
 export async function markNotification(form:FormData){
  const {supabase,user}=await requireUser();

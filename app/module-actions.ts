@@ -32,7 +32,7 @@ export async function saveModuleRecord(form:FormData) {
  const changes:Record<string,unknown>={};
  for(const field of module.fields) {
   const raw=text(form,field.name);
-  if(!id&&!raw&&((key==='edizioni'&&field.name==='direttore_id')||(key==='brevetti'&&field.name==='edizione_id')))return {field:field.name,error:'Seleziona '+field.label.toLowerCase()+'.'};
+  if(!id&&!raw&&((key==='edizioni'&&field.name==='direttore_id')))return {field:field.name,error:'Seleziona '+field.label.toLowerCase()+'.'};
   if(field.type==='checkbox') {changes[field.name]=form.get(field.name)==='on';continue;}
   if(field.required&&!raw) return {error:'Controlla il campo '+field.label+'.',field:field.name};
   if(!raw){changes[field.name]=null;continue;}
@@ -59,6 +59,16 @@ export async function saveModuleRecord(form:FormData) {
    continue;
   }
   changes[field.name]=raw;
+ }
+ if(key==='brevetti'){
+  if(!id&&!['interno','esterno'].includes(String(changes.origine??'')))return {error:'Seleziona l’origine del brevetto.',field:'origine'};
+  if(!id&&changes.origine==='interno'&&!changes.edizione_id)return {error:'Seleziona l’edizione interna frequentata.',field:'edizione_id'};
+  if(changes.origine==='esterno'){
+   if(changes.edizione_id)return {error:'Un brevetto esterno non è collegato a un corso interno.',field:'edizione_id'};
+   if(!changes.ente)return {error:'Indica la didattica esterna.',field:'ente'};
+   if(!changes.stato_verifica)changes.stato_verifica='in_attesa';
+  }else if(!id){changes.stato_verifica='verificato';changes.centro_rilascio=null;changes.istruttore_esterno=null;}
+  else if(!changes.stato_verifica)changes.stato_verifica='verificato';
  }
  let equipmentBefore:{stato:string;ultima_revisione:string|null;prossima_revisione:string|null}|null=null;
  if(key==='attrezzature'){
@@ -133,11 +143,11 @@ export async function saveModuleRecord(form:FormData) {
  if(key==='istruttori'){
   const person=String(changes.persona_id??'');
   const {data:qualified}=await supabase.from('qualifiche_istruttori').select('id').eq('persona_id',person).limit(1);
-  if(!qualified?.length)return {error:"Operazione non consentita: controlla duplicati, capienza, date e collegamenti."};
+  if(!qualified?.length)return {error:"Operazione non consentita: controlla duplicati, date e collegamenti."};
  }
  if(key==='adesioni'&&changes.verbale_cda_id){
   const {data:verbale}=await supabase.from('cda_verbali').select('id').eq('id',String(changes.verbale_cda_id)).eq('stato','approvato').in('tipo',['Approvazione Adesioni Soci','Misto']).maybeSingle();
-  if(!verbale)return {error:"Operazione non consentita: controlla duplicati, capienza, date e collegamenti."};
+  if(!verbale)return {error:"Operazione non consentita: controlla duplicati, date e collegamenti."};
  }
  if(key==='addebiti'&&id){
   // Non riassegnare un debito a un altro socio/corso (anche con pagamenti esistenti).
@@ -198,7 +208,7 @@ export async function saveModuleRecord(form:FormData) {
   if(error.code==='P3520')return {field:'persona_id',error:'La stessa persona non può essere allievo e istruttore nella stessa edizione.'};
   if(error.code==='P3521')return {field:'persona_id',error:'Per iscrivere un istruttore occorre una deroga. Per iscrizioni già esistenti, apri la scheda del corso.'};
   if(error.code==='P3421')return {error:'Il direttore non può essere allievo della stessa edizione.',field:key==='edizioni'?'direttore_id':'persona_id'};
-  if(error.code==='P3422')return {error:'Seleziona un’edizione frequentata dall’allievo con direttore assegnato.',field:'edizione_id'};
+  if(error.code==='P3422')return {error:'Controlla l’origine del brevetto e, per i brevetti interni, l’edizione frequentata con direttore assegnato.',field:'edizione_id'};
   if(key==='attrezzature')return {error:'Salvataggio non riuscito: verifica codice univoco e possibili modifiche concorrenti.'};
   if(key==='certificati')return {error:'Verifica documento, stato e date del certificato.',field:'esito_verifica'};
   // 23P01: violazione del vincolo PostgreSQL EXCLUDE sull'occupazione corsie.

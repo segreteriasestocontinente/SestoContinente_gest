@@ -1,0 +1,138 @@
+name: QA area personale e corsi (locale isolata)
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review, edited]
+permissions:
+  contents: read
+jobs:
+  member-qa:
+    if: github.event.pull_request.head.ref == 'fix/area-personale-iscrizioni-brevetti' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      NEXT_TELEMETRY_DISABLED: '1'
+      EMAIL_AUTOMATIC_NOTIFICATIONS: 'false'
+      NEXT_PUBLIC_SITE_URL: http://127.0.0.1:3314
+      NEXT_PUBLIC_SUPABASE_URL: https://example.invalid
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: qa-placeholder-not-a-credential
+      MEMBER_QA_LOCAL_ONLY: '1'
+      QA_ISOLATED_ENV: 'true'
+      SESTO_TEST_MODE: 'true'
+      SESTO_EMAIL_MODE: simulate
+      QA_BASE_URL: http://127.0.0.1:3314
+      SC_STRUCTURAL_RPC: 'false'
+      SC_STRUCTURAL_RPC_RELEASE: 'false'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: supabase/setup-cli@v1
+        with:
+          version: 3.4.0
+      - name: Genera migrazione con CLI senza connessione
+        shell: bash
+        run: |
+          set -euo pipefail
+          supabase --version
+          supabase migration new --help
+          shopt -s nullglob
+          files=(supabase/migrations/*_area_personale_iscrizioni_brevetti.sql)
+          if [ "${#files[@]}" -eq 0 ]; then
+            supabase migration new area_personale_iscrizioni_brevetti
+            files=(supabase/migrations/*_area_personale_iscrizioni_brevetti.sql)
+            test "${#files[@]}" -eq 1
+            cp scripts/qa-area-personale-iscrizioni-brevetti.sql "${files[0]}"
+          else
+            test "${#files[@]}" -eq 1
+            cmp scripts/qa-area-personale-iscrizioni-brevetti.sql "${files[0]}"
+          fi
+          printf 'GENERATED_MIGRATION=%s\n' "${files[0]}"
+          sha256sum "${files[0]}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: member-patch-migration
+          path: supabase/migrations/*_area_personale_iscrizioni_brevetti.sql
+          if-no-files-found: error
+          retention-days: 7
+      - run: npm ci --no-audit --no-fund
+      - run: npm run lint
+      - run: npx playwright install --with-deps chromium webkit
+      - run: npm run check:source
+      - run: npm run typecheck
+      - run: npm run test:static
+      - name: Database Supabase locale usa-e-getta
+        id: local
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ ! -f supabase/config.toml ] && [ ! -f supabase/config.jsonc ]; then supabase init; fi
+          if [ ! -f supabase/config.toml ]; then supabase config convert --to toml; fi
+          # Abilita conferme reali solo nell'Auth locale e conserva la doppia verifica.
+          python - <<'PY'
+          from pathlib import Path
+          import re
+          p=Path('supabase/config.toml')
+          s=p.read_text()
+          def section(name,values):
+              global s
+              pattern=r'(?ms)(^\['+re.escape(name)+r'\][^\n]*\n)(.*?)(?=^\[|\Z)'
+              m=re.search(pattern,s)
+              if not m: raise RuntimeError('Missing config section '+name)
+              body=m.group(2)
+              for key,value in values.items():
+                  rx=r'(?m)^'+re.escape(key)+r'\s*=.*$'
+                  if re.search(rx,body): body=re.sub(rx,lambda _:key+' = '+value,body)
+                  else: body+='\n'+key+' = '+value+'\n'
+              s=s[:m.start(2)]+body+s[m.end(2):]
+          section('auth',{'site_url':'"http://127.0.0.1:3314"','additional_redirect_urls':'["http://127.0.0.1:3314/**"]'})
+          section('auth.email',{'enable_confirmations':'true','double_confirm_changes':'true','max_frequency':'"1s"'})
+          p.write_text(s)
+          PY
+          supabase start > "$RUNNER_TEMP/sesto-supabase-start.log" 2>&1 || { echo "Avvio/migrazioni Supabase locale non riusciti"; exit 1; }
+          status=$(mktemp)
+          chmod 600 "$status"
+          trap 'rm -f "$status"' EXIT
+          supabase status --output env > "$status"
+          work=$(mktemp -d "$RUNNER_TEMP/sesto-qa.XXXXXX")
+          chmod 700 "$work"
+          python3 scripts/qa-local-status.py "$status" "$work"
+      - name: PostgreSQL e RLS
+        run: MEMBER_QA_DATABASE_URL="$QA_DB_URL" node scripts/test-area-personale-iscrizioni-brevetti.cjs
+      - name: Build Next.js con endpoint locale
+        if: ${{ !cancelled() && steps.local.outcome == 'success' }}
+        id: build
+        run: npm run build
+      - name: Avvia app locale
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        id: app
+        run: |
+          npm run start -- --hostname 127.0.0.1 --port 3314 > /tmp/member-next.log 2>&1 &
+          for i in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:3314/accedi >/dev/null; then exit 0; fi
+            sleep 2
+          done
+          exit 1
+      - name: Collaudo PR 15 certificati, notifiche e schermi
+        if: ${{ !cancelled() && steps.app.outcome == 'success' }}
+        run: node scripts/medical-e2e.mjs
+      - name: Collaudo PR 16 profilo, sei ruoli, corsi, brevetti, email e schermi
+        if: ${{ !cancelled() && steps.app.outcome == 'success' }}
+        run: node scripts/member-patch-e2e.mjs
+      - name: Acquisisci risultati e screenshot
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: integrated-member-medical-e2e
+          path: |
+            artifacts/member-patch-e2e
+            artifacts/medical-e2e
+            /tmp/member-next.log
+          if-no-files-found: warn
+          retention-days: 7
+      - name: Arresta il database locale
+        if: always()
+        run: supabase stop --no-backup || true

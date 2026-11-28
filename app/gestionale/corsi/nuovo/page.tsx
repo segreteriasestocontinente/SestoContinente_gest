@@ -28,7 +28,6 @@ export default async function NewEdition({searchParams}:{searchParams:Promise<{m
  <div className="sc-field"><label htmlFor="nuovo-direttore">Direttore del corso</label><SearchableSelect id="nuovo-direttore" name="direttore_id" label="Direttore" required options={(people??[]).map(p=>({value:p.id,label:p.cognome+" "+p.nome}))}/></div>
  <label>Nome edizione<input name="nome" maxLength={160} required placeholder="Es. ARA 1 – Martedì sera"/></label>
  <div className="form-grid"><label>Dal<input type="date" name="inizio" required/></label><label>Al<input type="date" name="fine" required/></label></div>
- <label>Capienza massima<input type="number" name="massimo_partecipanti" min={1} max={500} step={1} required defaultValue={15}/></label>
  <label>Costo del corso (€)<input name="costo_corso" list="listino-corso" type="number" step="0.01" min="0" required placeholder="Seleziona o inserisci un importo"/></label>
  <datalist id="listino-corso">{prices?.map(p=><option key={p.importo} value={p.importo}/>)}</datalist>
  <label>Note organizzative<textarea name="note" maxLength={2000} rows={3}/></label>
