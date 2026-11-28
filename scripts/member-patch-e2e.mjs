@@ -79,7 +79,7 @@ try{
   const success=p.getByText('Rettifica anagrafica inviata alla segreteria.',{exact:true});
   const failure=form.getByRole('alert');
   try{await success.or(failure).first().waitFor({timeout:15000});assert.ok(await success.isVisible(),'Rettifica UI: '+(await failure.allTextContents()).join(' | '));}
-  catch(err){await p.screenshot({path:output+'/rettifica-failure.png',fullPage:true});const probe=await studentClient.from('rettifiche_anagrafiche').select('id,stato,revisione').eq('persona_id',student.id);console.error('QA rettifica: URL',new URL(p.url()).pathname+new URL(p.url()).search,'RLS API',probe.error?.code??'OK','righe',probe.data?.length??0,'alert',await form.getByRole('alert').allTextContents());throw err;}
+  catch(err){await p.screenshot({path:output+'/rettifica-failure.png',fullPage:true});const probe=await studentClient.from('rettifiche_anagrafiche').select('id,stato,revisione').eq('persona_id',student.id);console.error('QA rettifica: URL',new URL(p.url()).pathname+new URL(p.url()).search,'RLS API',probe.error?.code??'OK','righe',probe.data?.length??0,'alert',await form.getByRole('alert').allTextContents(),'guard',await p.locator('dialog[open].sc-discard-dialog').count());throw err;}
  }
  const emergency=p.locator('section').filter({has:p.getByRole('heading',{name:'Contatto di emergenza',exact:true})});
  await emergency.locator('input[name=emergenza_nome]').fill('Contatto di prova');
@@ -93,7 +93,9 @@ try{
  check((await ok(db.from('contatti_emergenza').select('nominativo').eq('persona_id',child.id).single())).nominativo==='Tutore QA','Tutore aggiorna persona rappresentata');
  await p.locator('input[name=telefono]').fill('3331234569');await p.locator('input[name=email]').fill('recapito@example.invalid');await p.getByRole('button',{name:'Salva recapiti'}).click();await p.getByText('Recapiti salvati.',{exact:true}).waitFor();
  check((await ok(db.from('persone').select('email').eq('id',student.id).single())).email==='recapito@example.invalid','Recapiti salvati');
+ await p.locator('form').filter({has:p.locator('input[name=telefono]')}).getByRole('alert').count().then(n=>check(n===0,'Salvataggio recapiti senza falso errore'));
  await submitCorrection('Collaudo rettificato');
+ check(await p.locator('dialog[open].sc-discard-dialog').count()===0,'Nessun falso avviso di modifiche non salvate dopo salvataggi consecutivi');
  check((await ok(db.from('persone').select('nome').eq('id',student.id).single())).nome==='Collaudo','Rettifica non modifica direttamente anagrafica');
  await s.goto(origin+'/gestionale/soci');await s.getByRole('heading',{name:/Rettifiche anagrafiche da verificare/}).waitFor();
  await s.getByRole('link',{name:'QA socio Collaudo rettificato',exact:true}).click();

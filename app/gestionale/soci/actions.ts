@@ -74,7 +74,7 @@ export async function updateMemberEmergency(form:FormData){
  const {error}=await supabase.from('contatti_emergenza').upsert({persona_id:id,nominativo,telefono},{onConflict:'persona_id'});
  if(error)return {error:'Impossibile salvare il contatto.'};
  revalidatePath('/area-personale/profilo');revalidatePath('/gestionale/soci/'+id);
- redirect(memberUrl(id,'emergenza_salvata')+'&tab=anagrafica');
+
 }
 export async function reviewIdentityCorrection(form:FormData){
  const {supabase}=await requireStaff();
@@ -96,5 +96,5 @@ export async function reviewIdentityCorrection(form:FormData){
  const result=await supabase.rpc('decidi_rettifica_anagrafica',{p_id:request,p_revisione:revisione,p_esito:esito,p_codice_catastale:check.code,p_omocodia:check.omocodia,p_motivo:check.reason,p_motivazione_esito:motivazione||null});
  if(result.error)return {error:result.error.code==='40001'?'Il profilo è cambiato dopo la richiesta. Respingi e chiedi una nuova rettifica.':'Impossibile completare la rettifica. Verifica eventuali duplicati.'};
  revalidatePath('/area-personale/profilo');revalidatePath('/gestionale/soci');revalidatePath('/gestionale/soci/'+person);
- redirect(memberUrl(person,'rettifica_decisa')+'&tab=anagrafica');
+
 }

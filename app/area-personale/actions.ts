@@ -10,7 +10,7 @@ export async function askForCourse(form:FormData){
  if(!uuid.test(p_persona)||!uuid.test(p_edizione))return {error:'Seleziona un profilo e un corso validi.'};
  const {error}=await supabase.rpc('richiedi_iscrizione_corso',{p_persona,p_edizione});
  if(error)return {error:error.code==='P3521'?'Gli istruttori possono iscriversi come allievi solo con una deroga autorizzata dalla segreteria.':error.code==='P3520'?'Non puoi essere allievo e istruttore nella stessa edizione.':error.code==='P3421'?'Il direttore non può essere allievo.':error.code==='23505'?'Iscrizione già presente.':error.message.includes('già presente')?'Richiesta già presente.':error.code==='P3413'?'Il corso non è aperto o manca l’adesione della stagione.':'Richiesta non inviata. Verifica adesione e disponibilità del corso.'};
- revalidatePath('/area-personale/corsi');revalidatePath('/gestionale/corsi');revalidatePath('/gestionale/corsi/'+p_edizione);redirect('/area-personale/corsi?tab=iscrizioni&msg=inviata');
+ revalidatePath('/area-personale/corsi');revalidatePath('/gestionale/corsi');revalidatePath('/gestionale/corsi/'+p_edizione);
 }
 export async function markNotification(form:FormData){
  const {supabase,user}=await requireUser();

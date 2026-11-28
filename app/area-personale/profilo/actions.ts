@@ -1,5 +1,4 @@
 'use server';
-import {redirect} from 'next/navigation';
 import {revalidatePath} from 'next/cache';
 import {requireUser} from '@/lib/security';
 
@@ -28,7 +27,7 @@ async function ownProfile(form:FormData){
  return {supabase,user,person};
 }
 function refresh(person:string){
- revalidatePath(profile);revalidatePath('/area-personale');revalidatePath('/gestionale/soci/'+person);
+ revalidatePath(profile);revalidatePath('/area-personale');revalidatePath('/gestionale/soci/'+person);revalidatePath('/gestionale/soci');
 }
 export async function updateContact(form:FormData){
  const owned=await ownProfile(form);
@@ -43,7 +42,7 @@ export async function updateContact(form:FormData){
   const {error}=await supabase.from('persone').update(changes).eq('id',person).select('id').single();
   if(error)return {error:'Impossibile salvare i recapiti. Riprova.'};
  }catch{return {error:'Controlla lunghezza e formato dei recapiti.'};}
- refresh(person);redirect(profile+'?msg=ok');
+ refresh(person);
 }
 export async function updateEmergencyContact(form:FormData){
  const owned=await ownProfile(form);
@@ -54,7 +53,7 @@ export async function updateEmergencyContact(form:FormData){
  if(!/^[+0-9() ./-]{5,32}$/.test(phone)||phone.replace(/\D/g,'').length<5)return {error:'Inserisci un numero di telefono valido.',field:'emergenza_telefono'};
  const {error}=await supabase.from('contatti_emergenza').upsert({persona_id:person,nominativo:name,telefono:phone},{onConflict:'persona_id'});
  if(error)return {error:'Impossibile salvare il contatto di emergenza.'};
- refresh(person);redirect(profile+'?msg=emergenza_ok');
+ refresh(person);
 }
 export async function requestIdentityCorrection(form:FormData){
  const owned=await ownProfile(form);
@@ -77,7 +76,7 @@ export async function requestIdentityCorrection(form:FormData){
   const result=pending?await supabase.from('rettifiche_anagrafiche').update(changes).eq('id',pending.id).eq('persona_id',person).eq('revisione',pending.revisione).eq('stato','in_attesa').select('id').single():await supabase.from('rettifiche_anagrafiche').insert({persona_id:person,richiedente_id:user.id,...changes},{defaultToNull:false}).select('id').single();
   if(result.error){if(process.env.QA_ISOLATED_ENV==='true')console.error('QA rettifica write',result.error.code);return {error:result.error.code==='23505'?'È già presente una rettifica in attesa. Ricarica il profilo.':result.error.code==='42501'?'Il profilo non consente questa rettifica. Contatta la segreteria.':'Impossibile registrare la rettifica. Verifica i dati e riprova.'};}
  }catch{return {error:'Controlla i dati anagrafici.'};}
- refresh(person);redirect(profile+'?msg=rettifica_ok');
+ refresh(person);
 }
 export async function saveExternalPatent(form:FormData){
  const owned=await ownProfile(form);
@@ -96,7 +95,7 @@ export async function saveExternalPatent(form:FormData){
   const result=id?await supabase.from('brevetti_allievi').update(changes).eq('id',id).eq('persona_id',person).eq('origine','esterno').in('stato_verifica',['in_attesa','respinto']).select('id').single():await supabase.from('brevetti_allievi').insert({persona_id:person,origine:'esterno',...changes}).select('id').single();
   if(result.error)return {error:result.error.code==='23505'?'Un brevetto con lo stesso ente e numero è già registrato.':'Impossibile salvare il brevetto esterno. Verifica che non sia già stato approvato.'};
  }catch{return {error:'Controlla i dati del brevetto.'};}
- refresh(person);redirect(profile+'?msg=brevetto_ok');
+ refresh(person);
 }
 
 export async function changeLoginEmail(form:FormData){
@@ -115,5 +114,5 @@ export async function changeLoginEmail(form:FormData){
  if(authError||verified.user?.id!==user.id)return {error:'Password attuale non corretta o verifica non disponibile.',field:'password_attuale'};
  const {error}=await supabase.auth.updateUser({email},{emailRedirectTo:target});
  if(error)return {error:'Non è stato possibile avviare il cambio email. Controlla l’indirizzo o riprova più tardi.'};
- revalidatePath(profile);redirect(profile+'?msg=email_richiesta');
+ revalidatePath(profile);
 }
